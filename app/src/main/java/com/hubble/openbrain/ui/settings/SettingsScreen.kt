@@ -15,7 +15,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Mic
@@ -32,7 +31,6 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -126,14 +124,6 @@ fun SettingsScreen(
             subtitle = "${state.whisperModel.displayName} · ${state.whisperModel.sizeMb} MB",
             onClick = { pickingModel = true },
         )
-        SwitchItem(
-            icon = Icons.Filled.GraphicEq,
-            title = "Keep raw audio",
-            subtitle = "Retain PCM after transcription",
-            checked = state.audioRetention,
-            onCheckedChange = viewModel::setAudioRetention,
-        )
-
         ThemedSectionHeader("Storage")
         StorageItem(usedBytes = storage.first, totalBytes = storage.second)
 
@@ -260,34 +250,6 @@ private fun SettingsItem(
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.clickable(onClick = onClick),
-    )
-}
-
-@Composable
-private fun SwitchItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    ListItem(
-        headlineContent = { Text(title, fontWeight = FontWeight.W500) },
-        supportingContent = {
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        leadingContent = {
-            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp))
-        },
-        trailingContent = {
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
-        },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.clickable { onCheckedChange(!checked) },
     )
 }
 

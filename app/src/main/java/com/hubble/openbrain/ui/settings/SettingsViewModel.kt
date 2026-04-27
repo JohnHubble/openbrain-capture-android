@@ -28,7 +28,6 @@ data class SettingsUiState(
     val endpoint: String = SettingsStore.DEFAULT_ENDPOINT,
     val accessKey: String = "",
     val whisperModel: WhisperModel = WhisperModel.BASE,
-    val audioRetention: Boolean = false,
 )
 
 sealed interface TestState {
@@ -55,9 +54,8 @@ class SettingsViewModel @Inject constructor(
         store.endpoint,
         secureKeys.accessKey,
         store.whisperModel,
-        store.audioRetention,
-    ) { theme, endpoint, key, model, retention ->
-        SettingsUiState(theme, endpoint, key, model, retention)
+    ) { theme, endpoint, key, model ->
+        SettingsUiState(theme, endpoint, key, model)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, SettingsUiState())
 
     private val _storageBytes = MutableStateFlow(0L to 0L)
@@ -84,7 +82,6 @@ class SettingsViewModel @Inject constructor(
     fun setEndpoint(value: String) = viewModelScope.launch { store.setEndpoint(value) }
     fun setAccessKey(value: String) = viewModelScope.launch { secureKeys.setAccessKey(value) }
     fun setWhisperModel(model: WhisperModel) = viewModelScope.launch { store.setWhisperModel(model) }
-    fun setAudioRetention(enabled: Boolean) = viewModelScope.launch { store.setAudioRetention(enabled) }
 
     fun clearQueue() = viewModelScope.launch {
         thoughts.clearUnsent()

@@ -1,7 +1,6 @@
 package com.hubble.openbrain.data.prefs
 
 import android.content.Context
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -37,7 +36,6 @@ class SettingsStore @Inject constructor(
     private val themeIdKey = stringPreferencesKey("theme_id")
     private val endpointKey = stringPreferencesKey("ob1_endpoint")
     private val whisperModelKey = stringPreferencesKey("whisper_model")
-    private val audioRetentionKey = booleanPreferencesKey("audio_retention")
 
     val themeId: Flow<ThemeId> = context.dataStore.data.map { prefs ->
         prefs[themeIdKey]?.let { runCatching { ThemeId.valueOf(it) }.getOrNull() }
@@ -53,10 +51,6 @@ class SettingsStore @Inject constructor(
             ?: WhisperModel.BASE
     }
 
-    val audioRetention: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[audioRetentionKey] ?: false
-    }
-
     suspend fun setThemeId(id: ThemeId) {
         context.dataStore.edit { it[themeIdKey] = id.name }
     }
@@ -67,10 +61,6 @@ class SettingsStore @Inject constructor(
 
     suspend fun setWhisperModel(model: WhisperModel) {
         context.dataStore.edit { it[whisperModelKey] = model.name }
-    }
-
-    suspend fun setAudioRetention(enabled: Boolean) {
-        context.dataStore.edit { it[audioRetentionKey] = enabled }
     }
 
     suspend fun reset() {
