@@ -1,7 +1,6 @@
 package com.hubble.openbrain.data.api
 
 import android.util.Log
-import com.hubble.openbrain.data.prefs.SettingsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -15,7 +14,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -23,7 +21,7 @@ import javax.inject.Singleton
 @Singleton
 class OB1Client @Inject constructor(
     private val http: OkHttpClient,
-    private val settings: SettingsStore,
+    private val settings: OB1Settings,
 ) {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -45,9 +43,8 @@ class OB1Client @Inject constructor(
         }
 
         val body = buildBody(content)
-        val url = withKeyQuery(endpoint, key)
         val request = Request.Builder()
-            .url(url)
+            .url(endpoint)
             .header("Content-Type", "application/json")
             .header("Accept", "application/json, text/event-stream")
             .header("x-brain-key", key)
@@ -83,11 +80,6 @@ class OB1Client @Inject constructor(
             ),
         )
         return json.encodeToString(JsonRpcRequest.serializer(), req)
-    }
-
-    private fun withKeyQuery(endpoint: String, key: String): String {
-        val sep = if (endpoint.contains('?')) '&' else '?'
-        return "$endpoint${sep}key=${URLEncoder.encode(key, "UTF-8")}"
     }
 
     private fun errorMessage(error: kotlinx.serialization.json.JsonElement): String = runCatching {

@@ -129,4 +129,9 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
 
     implementation(libs.accompanist.permissions)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
 }

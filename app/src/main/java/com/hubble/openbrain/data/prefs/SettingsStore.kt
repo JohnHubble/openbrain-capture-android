@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.hubble.openbrain.data.api.OB1Settings
 import com.hubble.openbrain.ui.theme.ThemeId
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -23,7 +24,7 @@ private val Context.dataStore by preferencesDataStore(name = "openbrain_settings
 @Singleton
 class SettingsStore @Inject constructor(
     @ApplicationContext private val context: Context,
-) {
+) : OB1Settings {
     private val themeIdKey = stringPreferencesKey("theme_id")
     private val endpointKey = stringPreferencesKey("ob1_endpoint")
     private val accessKeyKey = stringPreferencesKey("ob1_access_key")
@@ -35,11 +36,11 @@ class SettingsStore @Inject constructor(
             ?: ThemeId.MaterialDefault
     }
 
-    val endpoint: Flow<String> = context.dataStore.data.map { prefs ->
+    override val endpoint: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[endpointKey] ?: DEFAULT_ENDPOINT
     }
 
-    val accessKey: Flow<String> = context.dataStore.data.map { prefs ->
+    override val accessKey: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[accessKeyKey] ?: ""
     }
 
