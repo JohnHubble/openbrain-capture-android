@@ -19,7 +19,6 @@ object DatabaseModule {
     @Singleton
     fun provideDb(@ApplicationContext ctx: Context): ThoughtDb =
         Room.databaseBuilder(ctx, ThoughtDb::class.java, "thoughts.db")
-            .fallbackToDestructiveMigration()
             .build()
 
     @Provides
