@@ -28,12 +28,12 @@ class OB1ClientTest {
         server.shutdown()
     }
 
-    private fun client(endpoint: String, key: String): OB1Client {
+    private fun client(endpoint: String, key: String, requireHttps: Boolean = false): OB1Client {
         val settings = object : OB1Settings {
             override val endpoint = flowOf(endpoint)
             override val accessKey = flowOf(key)
         }
-        return OB1Client(OkHttpClient(), settings)
+        return OB1Client(OkHttpClient(), settings, requireHttps)
     }
 
     @Test
@@ -72,6 +72,26 @@ class OB1ClientTest {
     @Test
     fun `blank key returns failure without making a request`() = runTest {
         val result = client(server.url("/mcp").toString(), "").captureThought("x")
+        assertTrue(result is OB1Client.CaptureResult.Failure)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `http endpoint is rejected when requireHttps is true`() = runTest {
+        val httpUrl = server.url("/mcp").toString()
+        check(httpUrl.startsWith("http://")) { "MockWebServer should be plain http" }
+        val result = client(httpUrl, "k", requireHttps = true).captureThought("x")
+        assertTrue(result is OB1Client.CaptureResult.Failure)
+        assertEquals(
+            "Endpoint must use HTTPS",
+            (result as OB1Client.CaptureResult.Failure).message,
+        )
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `malformed endpoint URL is rejected`() = runTest {
+        val result = client("not a url", "k").captureThought("x")
         assertTrue(result is OB1Client.CaptureResult.Failure)
         assertEquals(0, server.requestCount)
     }

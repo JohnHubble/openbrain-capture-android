@@ -10,18 +10,21 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 
 @Singleton
 class OB1Client @Inject constructor(
     private val http: OkHttpClient,
     private val settings: OB1Settings,
+    @Named("requireHttps") private val requireHttps: Boolean,
 ) {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -37,6 +40,11 @@ class OB1Client @Inject constructor(
         val key = settings.accessKey.first()
         if (endpoint.isBlank() || endpoint.contains("YOUR_PROJECT")) {
             return@withContext CaptureResult.Failure("Endpoint not configured", retriable = false)
+        }
+        val parsedUrl = endpoint.toHttpUrlOrNull()
+            ?: return@withContext CaptureResult.Failure("Endpoint is not a valid URL", retriable = false)
+        if (requireHttps && !parsedUrl.isHttps) {
+            return@withContext CaptureResult.Failure("Endpoint must use HTTPS", retriable = false)
         }
         if (key.isBlank()) {
             return@withContext CaptureResult.Failure("Access key not set", retriable = false)
