@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -80,38 +79,19 @@ class WhisperModelRepository @Inject constructor(
         val url = urlFor(model)
         Log.i(TAG, "Downloading whisper model $model from $url")
         _state.value = ModelState.Downloading(model, 0, 0)
-
-        val request = Request.Builder().url(url).build()
-        http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw RuntimeException("HTTP ${response.code}")
-            val body = response.body ?: throw RuntimeException("Empty response body")
-            val total = body.contentLength().takeIf { it > 0 } ?: -1L
-            val partFile = File(modelsDir, "${model.fileName}.part")
-            partFile.outputStream().use { out ->
-                body.byteStream().use { input ->
-                    val buf = ByteArray(64 * 1024)
-                    var downloaded = 0L
-                    var lastReport = 0L
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n <= 0) break
-                        out.write(buf, 0, n)
-                        downloaded += n
-                        if (downloaded - lastReport > 256 * 1024) {
-                            _state.value = ModelState.Downloading(model, downloaded, total)
-                            lastReport = downloaded
-                        }
-                    }
-                }
-            }
-            val finalFile = modelFile(model)
-            if (finalFile.exists()) finalFile.delete()
-            if (!partFile.renameTo(finalFile)) {
-                throw RuntimeException("Rename ${partFile.name} -> ${finalFile.name} failed")
-            }
-            Log.i(TAG, "Model download complete: ${finalFile.length()} bytes")
-            _state.value = ModelState.Ready(model, finalFile)
+        val partFile = File(modelsDir, "${model.fileName}.part")
+        val finalFile = modelFile(model)
+        ModelDownloader.downloadAndVerify(
+            http = http,
+            url = url,
+            partFile = partFile,
+            finalFile = finalFile,
+            expectedSha256 = model.expectedSha256,
+        ) { downloaded, total ->
+            _state.value = ModelState.Downloading(model, downloaded, total)
         }
+        Log.i(TAG, "Model download complete: ${finalFile.length()} bytes (sha256 verified)")
+        _state.value = ModelState.Ready(model, finalFile)
     }
 
     companion object {

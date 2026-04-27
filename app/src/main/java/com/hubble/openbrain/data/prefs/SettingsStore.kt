@@ -12,10 +12,20 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-enum class WhisperModel(val displayName: String, val sizeMb: Int, val fileName: String) {
-    TINY("Tiny", 39, "ggml-tiny.bin"),
-    BASE("Base", 142, "ggml-base.bin"),
-    SMALL("Small", 466, "ggml-small.bin");
+/**
+ * SHA-256 hashes are taken from Hugging Face's `x-linked-etag` for each LFS file at
+ * https://huggingface.co/ggerganov/whisper.cpp (resolve/main). If upstream rotates a
+ * model the app will refuse to load it until this constant is bumped explicitly.
+ */
+enum class WhisperModel(
+    val displayName: String,
+    val sizeMb: Int,
+    val fileName: String,
+    val expectedSha256: String,
+) {
+    TINY("Tiny", 39, "ggml-tiny.bin", "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21"),
+    BASE("Base", 142, "ggml-base.bin", "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe"),
+    SMALL("Small", 466, "ggml-small.bin", "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b");
 }
 
 private val Context.dataStore by preferencesDataStore(name = "openbrain_settings")
