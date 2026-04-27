@@ -5,7 +5,6 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.hubble.openbrain.data.api.OB1Settings
 import com.hubble.openbrain.ui.theme.ThemeId
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -24,10 +23,9 @@ private val Context.dataStore by preferencesDataStore(name = "openbrain_settings
 @Singleton
 class SettingsStore @Inject constructor(
     @ApplicationContext private val context: Context,
-) : OB1Settings {
+) {
     private val themeIdKey = stringPreferencesKey("theme_id")
     private val endpointKey = stringPreferencesKey("ob1_endpoint")
-    private val accessKeyKey = stringPreferencesKey("ob1_access_key")
     private val whisperModelKey = stringPreferencesKey("whisper_model")
     private val audioRetentionKey = booleanPreferencesKey("audio_retention")
 
@@ -36,12 +34,8 @@ class SettingsStore @Inject constructor(
             ?: ThemeId.MaterialDefault
     }
 
-    override val endpoint: Flow<String> = context.dataStore.data.map { prefs ->
+    val endpoint: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[endpointKey] ?: DEFAULT_ENDPOINT
-    }
-
-    override val accessKey: Flow<String> = context.dataStore.data.map { prefs ->
-        prefs[accessKeyKey] ?: ""
     }
 
     val whisperModel: Flow<WhisperModel> = context.dataStore.data.map { prefs ->
@@ -61,10 +55,6 @@ class SettingsStore @Inject constructor(
         context.dataStore.edit { it[endpointKey] = value }
     }
 
-    suspend fun setAccessKey(value: String) {
-        context.dataStore.edit { it[accessKeyKey] = value }
-    }
-
     suspend fun setWhisperModel(model: WhisperModel) {
         context.dataStore.edit { it[whisperModelKey] = model.name }
     }
@@ -77,7 +67,21 @@ class SettingsStore @Inject constructor(
         context.dataStore.edit { it.clear() }
     }
 
+    /**
+     * Reads and clears the legacy plaintext `ob1_access_key` value if present, returning it.
+     * Used once at upgrade time to migrate the bearer key into encrypted storage.
+     */
+    suspend fun consumeLegacyAccessKey(): String {
+        var value = ""
+        context.dataStore.edit { prefs ->
+            value = prefs[LEGACY_ACCESS_KEY] ?: ""
+            if (value.isNotEmpty()) prefs.remove(LEGACY_ACCESS_KEY)
+        }
+        return value
+    }
+
     companion object {
         const val DEFAULT_ENDPOINT = "https://YOUR_PROJECT.supabase.co/functions/v1/open-brain-mcp"
+        private val LEGACY_ACCESS_KEY = stringPreferencesKey("ob1_access_key")
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hubble.openbrain.data.api.OB1Client
+import com.hubble.openbrain.data.prefs.SecureKeyStore
 import com.hubble.openbrain.data.prefs.SettingsStore
 import com.hubble.openbrain.data.prefs.WhisperModel
 import com.hubble.openbrain.data.repo.ThoughtRepository
@@ -41,6 +42,7 @@ sealed interface TestState {
 class SettingsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val store: SettingsStore,
+    private val secureKeys: SecureKeyStore,
     private val thoughts: ThoughtRepository,
     private val client: OB1Client,
 ) : ViewModel() {
@@ -51,7 +53,7 @@ class SettingsViewModel @Inject constructor(
     val state: StateFlow<SettingsUiState> = combine(
         store.themeId,
         store.endpoint,
-        store.accessKey,
+        secureKeys.accessKey,
         store.whisperModel,
         store.audioRetention,
     ) { theme, endpoint, key, model, retention ->
@@ -80,7 +82,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setEndpoint(value: String) = viewModelScope.launch { store.setEndpoint(value) }
-    fun setAccessKey(value: String) = viewModelScope.launch { store.setAccessKey(value) }
+    fun setAccessKey(value: String) = viewModelScope.launch { secureKeys.setAccessKey(value) }
     fun setWhisperModel(model: WhisperModel) = viewModelScope.launch { store.setWhisperModel(model) }
     fun setAudioRetention(enabled: Boolean) = viewModelScope.launch { store.setAudioRetention(enabled) }
 
@@ -91,6 +93,7 @@ class SettingsViewModel @Inject constructor(
 
     fun resetAll() = viewModelScope.launch {
         store.reset()
+        secureKeys.setAccessKey("")
         thoughts.clearAll()
         refreshStorage()
     }
