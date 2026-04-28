@@ -1,10 +1,13 @@
 package com.hubble.openbrain.transcribe
 
 import android.util.Log
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
@@ -30,12 +33,15 @@ internal object ModelDownloader {
         expectedSha256: String,
         progress: ProgressSink = ProgressSink { _, _ -> },
     ) {
-        // The shared OkHttpClient has readTimeout(0) so OB1 SSE can hold streams open.
-        // For a large file download we want a bounded read timeout so stalls surface as
-        // errors instead of hanging forever.
+        // The shared OkHttpClient has readTimeout(0) so OB1 SSE can hold streams open. For
+        // a large file download we want a bounded read timeout so stalls surface as
+        // errors instead of hanging forever. We also force IPv4-only DNS: HF redirects
+        // to a CloudFront/Xet CDN, and on networks where the IPv6 path to those CDNs
+        // is not reachable, OkHttp's Happy-Eyeballs fallback to IPv4 can take minutes.
+        // We don't need IPv6 for the model fetch.
         val downloadHttp = http.newBuilder()
             .readTimeout(60, TimeUnit.SECONDS)
-            .callTimeout(0, TimeUnit.SECONDS)
+            .dns(Ipv4OnlyDns)
             .build()
         val request = Request.Builder().url(url).build()
         val tag = "ModelDownloader"
@@ -88,6 +94,11 @@ internal object ModelDownloader {
             if (partFile.exists()) partFile.delete()
             throw t
         }
+    }
+
+    private object Ipv4OnlyDns : Dns {
+        override fun lookup(hostname: String): List<InetAddress> =
+            Dns.SYSTEM.lookup(hostname).filterIsInstance<Inet4Address>()
     }
 
     private fun ByteArray.toHex(): String {
