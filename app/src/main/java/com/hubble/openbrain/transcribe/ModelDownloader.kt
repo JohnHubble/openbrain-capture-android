@@ -5,6 +5,7 @@ import okhttp3.Request
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 
 /**
  * Pure download + SHA-256 verify helper, extracted so it can be unit-tested without
@@ -28,9 +29,16 @@ internal object ModelDownloader {
         expectedSha256: String,
         progress: ProgressSink = ProgressSink { _, _ -> },
     ) {
+        // The shared OkHttpClient has readTimeout(0) so OB1 SSE can hold streams open.
+        // For a large file download we want a bounded read timeout so stalls surface as
+        // errors instead of hanging forever.
+        val downloadHttp = http.newBuilder()
+            .readTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.SECONDS)
+            .build()
         val request = Request.Builder().url(url).build()
         try {
-            http.newCall(request).execute().use { response ->
+            downloadHttp.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
                 val body = response.body ?: throw IOException("Empty response body")
                 val total = body.contentLength().takeIf { it > 0 } ?: -1L
