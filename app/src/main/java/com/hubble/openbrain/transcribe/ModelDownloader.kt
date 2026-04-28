@@ -1,5 +1,6 @@
 package com.hubble.openbrain.transcribe
 
+import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -37,12 +38,17 @@ internal object ModelDownloader {
             .callTimeout(0, TimeUnit.SECONDS)
             .build()
         val request = Request.Builder().url(url).build()
+        val tag = "ModelDownloader"
+        val callStart = System.currentTimeMillis()
         try {
             downloadHttp.newCall(request).execute().use { response ->
+                val responseAt = System.currentTimeMillis()
+                Log.i(tag, "Response received in ${responseAt - callStart}ms (code=${response.code})")
                 if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
                 val body = response.body ?: throw IOException("Empty response body")
                 val total = body.contentLength().takeIf { it > 0 } ?: -1L
                 val digest = MessageDigest.getInstance("SHA-256")
+                var firstByteLogged = false
                 partFile.outputStream().use { out ->
                     body.byteStream().use { input ->
                         val buf = ByteArray(64 * 1024)
@@ -51,6 +57,10 @@ internal object ModelDownloader {
                         while (true) {
                             val n = input.read(buf)
                             if (n <= 0) break
+                            if (!firstByteLogged) {
+                                Log.i(tag, "First bytes after ${System.currentTimeMillis() - responseAt}ms")
+                                firstByteLogged = true
+                            }
                             out.write(buf, 0, n)
                             digest.update(buf, 0, n)
                             downloaded += n

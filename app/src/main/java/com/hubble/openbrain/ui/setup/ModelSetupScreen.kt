@@ -3,6 +3,7 @@ package com.hubble.openbrain.ui.setup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +14,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -27,12 +30,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hubble.openbrain.data.prefs.WhisperModel
 import com.hubble.openbrain.transcribe.ModelState
 import java.util.Locale
 
 @Composable
 fun ModelSetupScreen(viewModel: ModelSetupViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val selected by viewModel.selectedModel.collectAsStateWithLifecycle()
 
     Scaffold { inner ->
         Column(
@@ -46,8 +51,8 @@ fun ModelSetupScreen(viewModel: ModelSetupViewModel = hiltViewModel()) {
             when (val s = state) {
                 ModelState.Checking -> CheckingBlock()
                 is ModelState.NotPresent -> NotPresentBlock(
-                    modelName = s.model.displayName,
-                    sizeMb = s.model.sizeMb,
+                    selected = selected,
+                    onSelect = viewModel::selectModel,
                     onStart = viewModel::startDownload,
                 )
                 is ModelState.Downloading -> DownloadingBlock(
@@ -74,7 +79,11 @@ private fun CheckingBlock() {
 }
 
 @Composable
-private fun NotPresentBlock(modelName: String, sizeMb: Int, onStart: () -> Unit) {
+private fun NotPresentBlock(
+    selected: WhisperModel,
+    onSelect: (WhisperModel) -> Unit,
+    onStart: () -> Unit,
+) {
     Icon(
         imageVector = Icons.Filled.CloudDownload,
         contentDescription = null,
@@ -89,24 +98,56 @@ private fun NotPresentBlock(modelName: String, sizeMb: Int, onStart: () -> Unit)
     )
     Spacer(Modifier.height(8.dp))
     Text(
-        text = "Open Brain transcribes on device. The $modelName model (~$sizeMb MB) runs entirely offline.",
+        text = "Open Brain transcribes on device. Bigger models are more accurate but slower and use more storage.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
     )
+    Spacer(Modifier.height(20.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        WhisperModel.entries.forEach { model ->
+            FilterChip(
+                selected = model == selected,
+                onClick = { onSelect(model) },
+                label = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            model.displayName,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.W500,
+                        )
+                        Text(
+                            "${model.sizeMb} MB",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                colors = FilterChipDefaults.filterChipColors(),
+            )
+        }
+    }
     Spacer(Modifier.height(24.dp))
     Button(onClick = onStart) {
         Icon(Icons.Filled.CloudDownload, contentDescription = null)
         Spacer(Modifier.size(8.dp))
-        Text("Download model")
+        Text("Download ${selected.displayName} (~${selected.sizeMb} MB)")
     }
 }
 
 @Composable
 private fun DownloadingBlock(modelName: String, bytes: Long, total: Long, onCancel: () -> Unit) {
-    val fraction = if (total > 0) (bytes.toFloat() / total).coerceIn(0f, 1f) else null
+    // Connection establishment can take a while before the first byte arrives. Until the
+    // server replies with bytes, show a distinct "Connecting" label so the user doesn't
+    // think the indeterminate bar is stuck.
+    val connecting = bytes == 0L
+    val fraction = if (total > 0 && !connecting) (bytes.toFloat() / total).coerceIn(0f, 1f) else null
     Text(
-        text = "Downloading $modelName",
+        text = if (connecting) "Connecting to Hugging Face…" else "Downloading $modelName",
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.W500,
     )
@@ -117,10 +158,10 @@ private fun DownloadingBlock(modelName: String, bytes: Long, total: Long, onCanc
         LinearProgressIndicator(Modifier.fillMaxWidth())
     }
     Spacer(Modifier.height(8.dp))
-    val progressLine = if (total > 0) {
-        "${formatMb(bytes)} / ${formatMb(total)}  ·  ${(fraction!! * 100).toInt()}%"
-    } else {
-        formatMb(bytes)
+    val progressLine = when {
+        connecting -> "Establishing connection…"
+        total > 0 -> "${formatMb(bytes)} / ${formatMb(total)}  ·  ${(fraction!! * 100).toInt()}%"
+        else -> formatMb(bytes)
     }
     Text(
         text = progressLine,
