@@ -14,3 +14,8 @@ keystore.properties
 /app/release
 /app/build
 .kotlin/
+
+# Claude Code runtime artifacts (the hook + settings.json are tracked, but
+# per-session locks and worktree caches are not).
+.claude/scheduled_tasks.lock
+.claude/worktrees/
