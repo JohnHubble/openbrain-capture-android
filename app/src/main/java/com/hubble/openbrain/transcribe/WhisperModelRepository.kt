@@ -43,7 +43,21 @@ class WhisperModelRepository @Inject constructor(
     private var downloadJob: Job? = null
 
     init {
-        scope.launch { refresh() }
+        scope.launch {
+            settings.whisperModel.collect { model ->
+                // Setting changes (incl. first emit at startup): cancel any in-flight download
+                // for the previous model and re-evaluate. If the new model isn't on disk, state
+                // flips to NotPresent and MainActivity shows the setup screen.
+                downloadJob?.cancel()
+                downloadJob = null
+                val file = modelFile(model)
+                _state.value = if (file.exists() && file.length() > 1_000_000L) {
+                    ModelState.Ready(model, file)
+                } else {
+                    ModelState.NotPresent(model)
+                }
+            }
+        }
     }
 
     fun modelFile(model: WhisperModel): File = File(modelsDir, model.fileName)
