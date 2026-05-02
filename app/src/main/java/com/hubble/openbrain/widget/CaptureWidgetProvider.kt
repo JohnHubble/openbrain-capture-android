@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
 import com.hubble.openbrain.R
+import com.hubble.openbrain.service.CapturePhase
 import com.hubble.openbrain.service.CaptureStateHolder
 import com.hubble.openbrain.tile.ToggleCaptureReceiver
 import dagger.hilt.EntryPoint
@@ -16,7 +17,7 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 
 /**
- * Home-screen widget that toggles capture with one tap and shows current state.
+ * Home-screen widget that toggles capture with one tap and shows current phase.
  * Reads in-memory [CaptureStateHolder] via a Hilt EntryPoint because AppWidgetProvider
  * cannot itself be @AndroidEntryPoint.
  */
@@ -33,12 +34,12 @@ class CaptureWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
     ) {
-        val state = EntryPointAccessors
+        val phase = EntryPointAccessors
             .fromApplication(context.applicationContext, StateEntryPoint::class.java)
             .state()
-            .state.value
+            .state.value.phase
         for (id in appWidgetIds) {
-            appWidgetManager.updateAppWidget(id, buildRemoteViews(context, state.isCapturing, state.isProcessing))
+            appWidgetManager.updateAppWidget(id, buildRemoteViews(context, phase))
         }
     }
 
@@ -61,15 +62,13 @@ class CaptureWidgetProvider : AppWidgetProvider() {
             )
         }
 
-        private fun buildRemoteViews(
-            context: Context,
-            isCapturing: Boolean,
-            isProcessing: Boolean,
-        ): RemoteViews {
+        private fun buildRemoteViews(context: Context, phase: CapturePhase): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_capture)
-            val label = when {
-                isCapturing -> "Capturing · tap to stop"
-                isProcessing -> "Finishing…"
+            val label = when (phase) {
+                is CapturePhase.Recording -> "Recording · tap to stop"
+                CapturePhase.Transcribing -> "Transcribing…"
+                CapturePhase.Saving -> "Saving…"
+                is CapturePhase.Preview -> "Awaiting save"
                 else -> "Tap to capture"
             }
             views.setTextViewText(R.id.widget_label, label)

@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
 import com.hubble.openbrain.MainActivity
 import com.hubble.openbrain.R
+import java.util.Locale
 
 object CaptureNotifications {
 
@@ -27,6 +28,16 @@ object CaptureNotifications {
             setShowBadge(false)
         }
         nm.createNotificationChannel(channel)
+    }
+
+    fun phaseText(phase: CapturePhase): String = when (phase) {
+        is CapturePhase.Recording -> "Recording · ${formatMs(phase.durationMs)}"
+        CapturePhase.Transcribing -> "Transcribing…"
+        is CapturePhase.Preview -> "Preview · awaiting save"
+        CapturePhase.Saving -> "Saving…"
+        is CapturePhase.Saved -> "Saved"
+        is CapturePhase.Error -> "Capture error"
+        CapturePhase.Idle -> "Idle"
     }
 
     fun build(context: Context, contentText: String): NotificationCompat.Builder {
@@ -51,5 +62,12 @@ object CaptureNotifications {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(openIntent)
             .addAction(0, "Stop", stopIntent)
+    }
+
+    private fun formatMs(ms: Long): String {
+        val total = ms / 1000
+        val m = total / 60
+        val s = total % 60
+        return String.format(Locale.US, "%d:%02d", m, s)
     }
 }

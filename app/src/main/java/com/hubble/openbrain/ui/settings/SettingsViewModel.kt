@@ -28,6 +28,7 @@ data class SettingsUiState(
     val endpoint: String = SettingsStore.DEFAULT_ENDPOINT,
     val accessKey: String = "",
     val whisperModel: WhisperModel = WhisperModel.BASE,
+    val previewBeforeSave: Boolean = false,
 )
 
 sealed interface TestState {
@@ -54,8 +55,9 @@ class SettingsViewModel @Inject constructor(
         store.endpoint,
         secureKeys.accessKey,
         store.whisperModel,
-    ) { theme, endpoint, key, model ->
-        SettingsUiState(theme, endpoint, key, model)
+        store.previewBeforeSave,
+    ) { theme, endpoint, key, model, preview ->
+        SettingsUiState(theme, endpoint, key, model, preview)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, SettingsUiState())
 
     private val _storageBytes = MutableStateFlow(0L to 0L)
@@ -82,6 +84,7 @@ class SettingsViewModel @Inject constructor(
     fun setEndpoint(value: String) = viewModelScope.launch { store.setEndpoint(value) }
     fun setAccessKey(value: String) = viewModelScope.launch { secureKeys.setAccessKey(value) }
     fun setWhisperModel(model: WhisperModel) = viewModelScope.launch { store.setWhisperModel(model) }
+    fun setPreviewBeforeSave(enabled: Boolean) = viewModelScope.launch { store.setPreviewBeforeSave(enabled) }
 
     fun clearQueue() = viewModelScope.launch {
         thoughts.clearUnsent()

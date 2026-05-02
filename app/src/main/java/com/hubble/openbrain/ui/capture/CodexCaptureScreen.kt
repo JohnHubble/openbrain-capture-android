@@ -24,7 +24,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -40,53 +39,49 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hubble.openbrain.R
+import com.hubble.openbrain.service.CapturePhase
+import com.hubble.openbrain.service.isBusy
+import com.hubble.openbrain.service.isRecording
 import com.hubble.openbrain.ui.theme.Cinzel
 import com.hubble.openbrain.ui.theme.CormorantGaramond
 import com.hubble.openbrain.ui.theme.LocalOpenBrainStrings
 import com.hubble.openbrain.ui.theme.UnifrakturMaguntia
 import com.hubble.openbrain.ui.theme.cx_gold
-import com.hubble.openbrain.ui.theme.cx_goldBright
 import com.hubble.openbrain.ui.theme.cx_ink
 import com.hubble.openbrain.ui.theme.cx_inkFaded
 import com.hubble.openbrain.ui.theme.cx_ultramarine
 import com.hubble.openbrain.ui.theme.cx_vellum
-import com.hubble.openbrain.ui.theme.cx_vellumDark
 import com.hubble.openbrain.ui.theme.cx_vermilion
 import java.util.Locale
 
 /**
  * Illuminated Codex — 13th-century scriptorium.
  * Layout mirrors v8-codex.html (iteration of v4-monk):
- *   vellum page · ornament band (❦✦❧) + SCRIPTORIUM title · brain hero image
- *   with "Et verbum factum est" caption · QUIESCENS Latin state word ·
- *   picker main+sub · circular seal with Incipit · 4-counter Latin row ·
- *   ornament divider · VERBUM ULTIMUM with "from the codex" · drop cap body.
+ *   vellum page · ornament band + SCRIPTORIUM title · brain hero image with caption ·
+ *   Latin state word · main+sub picker · circular seal · single duration counter ·
+ *   ornament divider · VERBUM ULTIMUM with drop cap.
  */
 @Composable
 fun CodexCaptureScreen(
     state: CaptureUiState,
     onToggle: () -> Unit,
+    onSavePreview: () -> Unit,
+    onDiscardPreview: () -> Unit,
 ) {
     val strings = LocalOpenBrainStrings.current
+    val isRecording = state.phase.isRecording
+    val isBusy = state.phase.isBusy
+    val isPreview = state.phase is CapturePhase.Preview
 
-    val main = when {
-        state.isProcessing -> strings.processing.main
-        state.isCapturing -> strings.listening.main
-        else -> strings.idle.main
-    }
-    val sub = when {
-        state.isProcessing -> strings.processing.sub
-        state.isCapturing -> strings.listening.sub
-        else -> strings.idle.sub
-    }
-    val buttonLabel = when {
-        state.isProcessing -> strings.button.processing
-        state.isCapturing -> strings.button.stop
-        else -> strings.button.start
-    }
-    val latinState = when {
-        state.isProcessing -> "SCRIBENS"
-        state.isCapturing -> "AUDIENS"
+    val text = phaseLifecycleText(state.phase, state.nearLimit, strings)
+    val buttonLabel = phaseButtonLabel(state.phase, strings)
+    val latinState = when (state.phase) {
+        is CapturePhase.Recording -> "AUDIENS"
+        CapturePhase.Transcribing -> "SCRIBENS"
+        is CapturePhase.Preview -> "REVIDENS"
+        CapturePhase.Saving -> "LIGANS"
+        is CapturePhase.Saved -> "SERVATUM"
+        is CapturePhase.Error -> "EXTINCTUM"
         else -> "QUIESCENS"
     }
 
@@ -119,16 +114,23 @@ fun CodexCaptureScreen(
             OrnamentBand("SCRIPTORIUM")
             BrainHero()
             LatinStateWord(latinState)
-            PickerStatus(main = main, sub = sub)
-            Seal(buttonLabel, onClick = { if (!state.isProcessing) onToggle() })
-            Counters(
-                duration = formatDurationCodex(state.durationMs),
-                verba = state.capturedCount,
-                libri = state.sentCount,
-                mora = state.queuedCount,
-            )
+            PickerStatus(main = text.main, sub = text.sub)
+            Seal(buttonLabel, onClick = { if (!isBusy && !isPreview) onToggle() })
+            if (state.nearLimit && isRecording) {
+                NearLimitNotice(strings.nearLimit.main, strings.nearLimit.sub)
+            }
+            DurationCounter(formatDurationCodex(state.durationMs))
+            if (isPreview) {
+                PreviewSection(
+                    transcript = state.previewTranscript ?: "",
+                    saveLabel = strings.savePreview,
+                    discardLabel = strings.discardPreview,
+                    onSave = onSavePreview,
+                    onDiscard = onDiscardPreview,
+                )
+            }
             OrnamentDivider()
-            VerbumUltimum(strings.latestTitle, state.latestThought)
+            VerbumUltimum(strings.latestTitle, state.lastSavedTranscript)
         }
     }
 }
@@ -297,7 +299,7 @@ private fun Seal(label: String, onClick: () -> Unit) {
                 Text(
                     text = label,
                     fontFamily = UnifrakturMaguntia,
-                    fontSize = 28.sp,
+                    fontSize = 24.sp,
                     letterSpacing = 1.4.sp,
                     color = cx_gold,
                     style = TextStyle(
@@ -314,66 +316,134 @@ private fun Seal(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Counters(duration: String, verba: Int, libri: Int, mora: Int) {
-    Row(
+private fun NearLimitNotice(main: String, sub: String) {
+    Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .border(1.dp, cx_gold, RoundedCornerShape(3.dp))
-            .background(cx_gold.copy(alpha = 0.05f), RoundedCornerShape(3.dp)),
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Counter("HORA", duration, "tempus", last = false, modifier = Modifier.weight(1f))
-        Counter("VERBA", verba.toString(), "capta", last = false, modifier = Modifier.weight(1f))
-        Counter("LIBRI", libri.toString(), "missa", last = false, modifier = Modifier.weight(1f))
-        Counter("MORA", mora.toString(), "expectant", last = true, modifier = Modifier.weight(1f))
+        Text(
+            text = main,
+            fontFamily = Cinzel,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp,
+            letterSpacing = 1.6.sp,
+            color = cx_vermilion,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = sub,
+            fontFamily = CormorantGaramond,
+            fontStyle = FontStyle.Italic,
+            fontSize = 13.sp,
+            color = cx_inkFaded,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
 @Composable
-private fun Counter(
-    label: String,
-    value: String,
-    sublabel: String,
-    last: Boolean,
-    modifier: Modifier = Modifier,
+private fun DurationCounter(duration: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .border(1.dp, cx_gold, RoundedCornerShape(3.dp))
+            .background(cx_gold.copy(alpha = 0.05f), RoundedCornerShape(3.dp)),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "HORA",
+                fontFamily = Cinzel,
+                fontWeight = FontWeight.Normal,
+                fontSize = 13.sp,
+                letterSpacing = 2.0.sp,
+                color = cx_inkFaded,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = duration,
+                fontFamily = CormorantGaramond,
+                fontStyle = FontStyle.Italic,
+                fontSize = 22.sp,
+                color = cx_ink,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "tempus",
+                fontFamily = CormorantGaramond,
+                fontStyle = FontStyle.Italic,
+                fontSize = 12.sp,
+                color = cx_inkFaded.copy(alpha = 0.85f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PreviewSection(
+    transcript: String,
+    saveLabel: String,
+    discardLabel: String,
+    onSave: () -> Unit,
+    onDiscard: () -> Unit,
 ) {
     Column(
-        modifier = modifier
-            .padding(vertical = 8.dp)
-            .then(
-                if (!last) Modifier.drawBehind {
-                    drawRect(
-                        color = cx_gold.copy(alpha = 0.3f),
-                        topLeft = Offset(size.width - 1f, 4f),
-                        size = Size(1f, size.height - 8f),
-                    )
-                } else Modifier,
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .border(1.dp, cx_vermilion, RoundedCornerShape(3.dp))
+            .background(cx_gold.copy(alpha = 0.04f), RoundedCornerShape(3.dp))
+            .padding(14.dp),
+    ) {
+        Text(
+            text = "REVISIO",
+            fontFamily = Cinzel,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.sp,
+            letterSpacing = 3.0.sp,
+            color = cx_vermilion,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = transcript,
+            fontFamily = CormorantGaramond,
+            fontSize = 16.sp,
+            lineHeight = 24.sp,
+            color = cx_ink,
+        )
+        Spacer(Modifier.height(14.dp))
+        Row {
+            CodexButton(label = saveLabel, primary = true, onClick = onSave)
+            Spacer(Modifier.width(12.dp))
+            CodexButton(label = discardLabel, primary = false, onClick = onDiscard)
+        }
+    }
+}
+
+@Composable
+private fun CodexButton(label: String, primary: Boolean, onClick: () -> Unit) {
+    val bg = if (primary) cx_ultramarine else Color.Transparent
+    val fg = if (primary) cx_gold else cx_ultramarine
+    Surface(
+        onClick = onClick,
+        color = bg,
+        shape = RoundedCornerShape(2.dp),
+        border = BorderStroke(1.dp, cx_ultramarine),
     ) {
         Text(
             text = label,
             fontFamily = Cinzel,
-            fontWeight = FontWeight.Normal,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 13.sp,
             letterSpacing = 2.0.sp,
-            color = cx_inkFaded,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = value,
-            fontFamily = CormorantGaramond,
-            fontStyle = FontStyle.Italic,
-            fontSize = 22.sp,
-            color = cx_ink,
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = sublabel,
-            fontFamily = CormorantGaramond,
-            fontStyle = FontStyle.Italic,
-            fontSize = 12.sp,
-            color = cx_inkFaded.copy(alpha = 0.85f),
+            color = fg,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
         )
     }
 }

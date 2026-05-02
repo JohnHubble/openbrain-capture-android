@@ -9,7 +9,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,9 +23,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,9 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -45,8 +40,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hubble.openbrain.R
+import com.hubble.openbrain.service.CapturePhase
+import com.hubble.openbrain.service.isBusy
+import com.hubble.openbrain.service.isRecording
 import com.hubble.openbrain.ui.theme.LocalOpenBrainStrings
-import com.hubble.openbrain.ui.theme.LocalOpenBrainTokens
 import com.hubble.openbrain.ui.theme.SakuraSans
 import com.hubble.openbrain.ui.theme.SakuraSerif
 import java.util.Locale
@@ -54,33 +51,26 @@ import java.util.Locale
 /**
  * Sakura Minimal — quiet, elemental, Muji restraint. Layout mirrors v5-sakura.html:
  * hairline rules, centered toggle with sakura-branch circular backdrop, serif titles
- * with kanji annotations, stat rows instead of cards.
+ * with kanji annotations, single-session duration where the stat grid used to be.
  */
 @Composable
 fun SakuraCaptureScreen(
     state: CaptureUiState,
     onToggle: () -> Unit,
+    onSavePreview: () -> Unit,
+    onDiscardPreview: () -> Unit,
 ) {
     val strings = LocalOpenBrainStrings.current
     val ink = MaterialTheme.colorScheme.onSurface
     val inkFaded = MaterialTheme.colorScheme.onSurfaceVariant
     val hairline = MaterialTheme.colorScheme.outline
 
-    val main = when {
-        state.isProcessing -> strings.processing.main
-        state.isCapturing -> strings.listening.main
-        else -> strings.idle.main
-    }
-    val sub = when {
-        state.isProcessing -> strings.processing.sub
-        state.isCapturing -> strings.listening.sub
-        else -> strings.idle.sub
-    }
-    val buttonLabel = when {
-        state.isProcessing -> strings.button.processing
-        state.isCapturing -> strings.button.stop
-        else -> strings.button.start
-    }
+    val isRecording = state.phase.isRecording
+    val isBusy = state.phase.isBusy
+    val isPreview = state.phase is CapturePhase.Preview
+
+    val text = phaseLifecycleText(state.phase, state.nearLimit, strings)
+    val buttonLabel = phaseButtonLabel(state.phase, strings)
 
     Column(
         Modifier
@@ -88,7 +78,6 @@ fun SakuraCaptureScreen(
             .verticalScroll(rememberScrollState())
             .padding(bottom = 32.dp),
     ) {
-        // ── Page header ──────────────────────────────
         Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 28.dp)) {
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
@@ -121,7 +110,6 @@ fun SakuraCaptureScreen(
 
         Hairline(hairline, vPadding = 24.dp)
 
-        // ── Focal area: sakura backdrop + toggle ── v5 spec: 160dp circle at 38% opacity
         Box(
             Modifier
                 .fillMaxWidth()
@@ -141,23 +129,27 @@ fun SakuraCaptureScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 SakuraToggleButton(
                     label = buttonLabel,
-                    isCapturing = state.isCapturing,
-                    isProcessing = state.isProcessing,
-                    onClick = onToggle,
+                    isCapturing = isRecording,
+                    isProcessing = isBusy,
+                    onClick = { if (!isPreview) onToggle() },
                 )
                 Spacer(Modifier.height(14.dp))
                 SakuraStatusRow(
-                    mainLabel = main,
-                    subLabel = sub,
-                    isCapturing = state.isCapturing,
-                    isProcessing = state.isProcessing,
+                    mainLabel = text.main,
+                    subLabel = text.sub,
+                    isCapturing = isRecording,
+                    isProcessing = isBusy || isPreview,
                 )
             }
         }
 
+        if (state.nearLimit && isRecording) {
+            Hairline(hairline, vPadding = 0.dp, hPadding = 24.dp)
+            SakuraNearLimit(strings.nearLimit.main, strings.nearLimit.sub, ink, inkFaded)
+        }
+
         Hairline(hairline, vPadding = 0.dp, hPadding = 24.dp)
 
-        // ── Stats ── v5 spec: plain "this session" label (no kanji), 32sp timer
         Column(Modifier.padding(horizontal = 24.dp, vertical = 24.dp)) {
             SectionLabel("this session", kanji = null, inkFaded = inkFaded)
             Spacer(Modifier.height(14.dp))
@@ -177,30 +169,47 @@ fun SakuraCaptureScreen(
                 color = inkFaded,
                 modifier = Modifier.padding(top = 2.dp),
             )
-            Spacer(Modifier.height(20.dp))
-            StatRow(state.capturedCount.toString(), "captured", ink, inkFaded)
-            Spacer(Modifier.height(10.dp))
-            StatRow(state.sentCount.toString(), "sent", ink, inkFaded)
-            Spacer(Modifier.height(10.dp))
-            StatRow(state.queuedCount.toString(), "queued", ink, inkFaded)
+        }
+
+        if (isPreview) {
+            Hairline(hairline, vPadding = 0.dp, hPadding = 24.dp)
+            SakuraPreview(
+                transcript = state.previewTranscript ?: "",
+                saveLabel = strings.savePreview,
+                discardLabel = strings.discardPreview,
+                ink = ink,
+                inkFaded = inkFaded,
+                onSave = onSavePreview,
+                onDiscard = onDiscardPreview,
+            )
         }
 
         Hairline(hairline, vPadding = 0.dp, hPadding = 24.dp)
 
-        // ── Last thought ── v5 spec: "最後" (last/latest) as the kanji suffix
         Column(Modifier.padding(horizontal = 24.dp, vertical = 24.dp)) {
             Row(verticalAlignment = Alignment.Bottom) {
                 SectionLabel(strings.latestTitle.lowercase(Locale.US), kanji = "最後", inkFaded = inkFaded)
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                text = state.latestThought ?: "—",
+                text = state.lastSavedTranscript ?: "—",
                 fontFamily = SakuraSerif,
                 fontWeight = FontWeight.Light,
                 fontSize = 15.sp,
                 lineHeight = 24.sp,
                 color = ink,
             )
+            if (state.lastSavedTranscript != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "${formatAge(state.lastSavedSecondsAgo)} · ${formatDuration(state.lastSavedDurationMs)}",
+                    fontFamily = SakuraSans,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Light,
+                    letterSpacing = 1.6.sp,
+                    color = inkFaded,
+                )
+            }
         }
     }
 }
@@ -212,7 +221,6 @@ private fun SakuraToggleButton(
     isProcessing: Boolean,
     onClick: () -> Unit,
 ) {
-    val tokens = LocalOpenBrainTokens.current
     val primary = MaterialTheme.colorScheme.primary
     val outline = MaterialTheme.colorScheme.outline
     val bg = when {
@@ -311,6 +319,84 @@ private fun SakuraStatusRow(
 }
 
 @Composable
+private fun SakuraNearLimit(
+    main: String,
+    sub: String,
+    ink: androidx.compose.ui.graphics.Color,
+    inkFaded: androidx.compose.ui.graphics.Color,
+) {
+    Column(Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+        Text(
+            text = main,
+            fontFamily = SakuraSerif,
+            fontWeight = FontWeight.Light,
+            fontSize = 14.sp,
+            color = ink,
+        )
+        Text(
+            text = sub,
+            fontFamily = SakuraSans,
+            fontWeight = FontWeight.Light,
+            fontSize = 10.sp,
+            letterSpacing = 1.4.sp,
+            color = inkFaded,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun SakuraPreview(
+    transcript: String,
+    saveLabel: String,
+    discardLabel: String,
+    ink: androidx.compose.ui.graphics.Color,
+    inkFaded: androidx.compose.ui.graphics.Color,
+    onSave: () -> Unit,
+    onDiscard: () -> Unit,
+) {
+    Column(Modifier.padding(horizontal = 24.dp, vertical = 20.dp)) {
+        SectionLabel("review", kanji = "見", inkFaded = inkFaded)
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = transcript,
+            fontFamily = SakuraSerif,
+            fontWeight = FontWeight.Light,
+            fontSize = 15.sp,
+            lineHeight = 24.sp,
+            color = ink,
+        )
+        Spacer(Modifier.height(16.dp))
+        Row {
+            SakuraTextButton(label = saveLabel, primary = true, onClick = onSave)
+            Spacer(Modifier.width(20.dp))
+            SakuraTextButton(label = discardLabel, primary = false, onClick = onDiscard)
+        }
+    }
+}
+
+@Composable
+private fun SakuraTextButton(label: String, primary: Boolean, onClick: () -> Unit) {
+    val color = if (primary) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        onClick = onClick,
+        color = androidx.compose.ui.graphics.Color.Transparent,
+        border = BorderStroke(1.dp, color),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(2.dp),
+    ) {
+        Text(
+            text = label.lowercase(Locale.US),
+            fontFamily = SakuraSans,
+            fontWeight = FontWeight.Light,
+            fontSize = 11.sp,
+            letterSpacing = 1.4.sp,
+            color = color,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+        )
+    }
+}
+
+@Composable
 private fun Hairline(
     color: androidx.compose.ui.graphics.Color,
     vPadding: androidx.compose.ui.unit.Dp,
@@ -351,39 +437,4 @@ private fun SectionLabel(
             )
         }
     }
-}
-
-@Composable
-private fun StatRow(
-    num: String,
-    label: String,
-    ink: androidx.compose.ui.graphics.Color,
-    inkFaded: androidx.compose.ui.graphics.Color,
-) {
-    Row(verticalAlignment = Alignment.Bottom) {
-        Text(
-            text = num,
-            fontFamily = SakuraSans,
-            fontWeight = FontWeight.ExtraLight,
-            fontSize = 20.sp,
-            color = ink,
-            modifier = Modifier.width(40.dp),
-        )
-        Text(
-            text = label,
-            fontFamily = SakuraSans,
-            fontWeight = FontWeight.Light,
-            fontSize = 11.sp,
-            letterSpacing = 0.5.sp,
-            color = inkFaded,
-        )
-    }
-}
-
-private fun formatDuration(ms: Long): String {
-    val t = ms / 1000
-    val h = t / 3600
-    val m = (t % 3600) / 60
-    val s = t % 60
-    return String.format(Locale.US, "%02d:%02d:%02d", h, m, s)
 }

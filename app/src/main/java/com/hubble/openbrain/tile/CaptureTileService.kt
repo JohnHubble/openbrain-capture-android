@@ -4,7 +4,9 @@ import android.graphics.drawable.Icon
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import com.hubble.openbrain.R
+import com.hubble.openbrain.service.CapturePhase
 import com.hubble.openbrain.service.CaptureService
+import com.hubble.openbrain.service.CaptureState
 import com.hubble.openbrain.service.CaptureStateHolder
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -16,8 +18,9 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Quick Settings tile for toggling capture from anywhere. Expanded-notification
- * tile state mirrors [CaptureStateHolder]: ACTIVE while listening, INACTIVE otherwise.
+ * Quick Settings tile for toggling capture from anywhere. Tile state mirrors
+ * [CaptureStateHolder.state.phase]: ACTIVE while Recording, UNAVAILABLE while
+ * Transcribing/Saving/Preview, INACTIVE otherwise.
  */
 @AndroidEntryPoint
 class CaptureTileService : TileService() {
@@ -41,21 +44,28 @@ class CaptureTileService : TileService() {
     }
 
     override fun onClick() {
-        val s = state.state.value
-        if (s.isCapturing || s.isProcessing) CaptureService.stop(this)
-        else CaptureService.start(this)
+        when (val p = state.state.value.phase) {
+            is CapturePhase.Recording -> CaptureService.stop(this)
+            CapturePhase.Transcribing, CapturePhase.Saving, is CapturePhase.Preview -> Unit
+            else -> {
+                @Suppress("UNUSED_VARIABLE") val unused = p
+                CaptureService.start(this)
+            }
+        }
     }
 
-    private fun render(s: com.hubble.openbrain.service.CaptureState) {
+    private fun render(s: CaptureState) {
         val tile = qsTile ?: return
-        tile.state = when {
-            s.isCapturing -> Tile.STATE_ACTIVE
-            s.isProcessing -> Tile.STATE_UNAVAILABLE
+        tile.state = when (s.phase) {
+            is CapturePhase.Recording -> Tile.STATE_ACTIVE
+            CapturePhase.Transcribing, CapturePhase.Saving, is CapturePhase.Preview -> Tile.STATE_UNAVAILABLE
             else -> Tile.STATE_INACTIVE
         }
-        tile.label = when {
-            s.isCapturing -> "Capturing"
-            s.isProcessing -> "Finishing…"
+        tile.label = when (s.phase) {
+            is CapturePhase.Recording -> "Capturing"
+            CapturePhase.Transcribing -> "Transcribing…"
+            CapturePhase.Saving -> "Saving…"
+            is CapturePhase.Preview -> "Awaiting save"
             else -> "Open Brain"
         }
         tile.icon = Icon.createWithResource(this, R.drawable.ic_tile_mic)

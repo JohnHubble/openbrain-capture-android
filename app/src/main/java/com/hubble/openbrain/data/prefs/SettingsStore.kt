@@ -1,6 +1,7 @@
 package com.hubble.openbrain.data.prefs
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -36,6 +37,7 @@ class SettingsStore @Inject constructor(
     private val themeIdKey = stringPreferencesKey("theme_id")
     private val endpointKey = stringPreferencesKey("ob1_endpoint")
     private val whisperModelKey = stringPreferencesKey("whisper_model")
+    private val previewBeforeSaveKey = booleanPreferencesKey("preview_before_save")
 
     val themeId: Flow<ThemeId> = context.dataStore.data.map { prefs ->
         prefs[themeIdKey]?.let { runCatching { ThemeId.valueOf(it) }.getOrNull() }
@@ -51,6 +53,10 @@ class SettingsStore @Inject constructor(
             ?: WhisperModel.BASE
     }
 
+    val previewBeforeSave: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[previewBeforeSaveKey] ?: false
+    }
+
     suspend fun setThemeId(id: ThemeId) {
         context.dataStore.edit { it[themeIdKey] = id.name }
     }
@@ -61,6 +67,10 @@ class SettingsStore @Inject constructor(
 
     suspend fun setWhisperModel(model: WhisperModel) {
         context.dataStore.edit { it[whisperModelKey] = model.name }
+    }
+
+    suspend fun setPreviewBeforeSave(enabled: Boolean) {
+        context.dataStore.edit { it[previewBeforeSaveKey] = enabled }
     }
 
     suspend fun reset() {

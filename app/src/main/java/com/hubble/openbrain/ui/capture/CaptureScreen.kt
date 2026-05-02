@@ -27,15 +27,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
@@ -46,10 +49,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hubble.openbrain.service.CapturePhase
+import com.hubble.openbrain.service.isBusy
+import com.hubble.openbrain.service.isRecording
+import com.hubble.openbrain.ui.theme.LifecycleText
 import com.hubble.openbrain.ui.theme.LocalOpenBrainStrings
 import com.hubble.openbrain.ui.theme.LocalOpenBrainThemeId
 import com.hubble.openbrain.ui.theme.LocalOpenBrainTokens
 import com.hubble.openbrain.ui.theme.ThemeId
+import com.hubble.openbrain.ui.theme.ThemeStrings
 import java.util.Locale
 
 @OptIn(com.google.accompanist.permissions.ExperimentalPermissionsApi::class)
@@ -67,8 +75,8 @@ fun CaptureScreen(viewModel: CaptureViewModel = hiltViewModel()) {
     val permissionState = com.google.accompanist.permissions.rememberMultiplePermissionsState(permissions)
 
     val onToggle: () -> Unit = {
-        if (!state.isProcessing) {
-            if (state.isCapturing || permissionState.allPermissionsGranted) {
+        if (!state.phase.isBusy && state.phase !is CapturePhase.Preview) {
+            if (state.phase.isRecording || permissionState.allPermissionsGranted) {
                 viewModel.toggleCapture()
             } else {
                 permissionState.launchMultiplePermissionRequest()
@@ -77,60 +85,68 @@ fun CaptureScreen(viewModel: CaptureViewModel = hiltViewModel()) {
     }
 
     when (themeId) {
-        ThemeId.SakuraMinimal -> SakuraCaptureScreen(state = state, onToggle = onToggle)
-        ThemeId.ComradeNotes -> ComradeCaptureScreen(state = state, onToggle = onToggle)
-        ThemeId.IlluminatedCodex -> CodexCaptureScreen(state = state, onToggle = onToggle)
-        ThemeId.MaterialDefault -> MaterialCaptureScreen(state = state, onToggle = onToggle)
+        ThemeId.SakuraMinimal -> SakuraCaptureScreen(
+            state = state, onToggle = onToggle,
+            onSavePreview = viewModel::confirmSave, onDiscardPreview = viewModel::discardPreview,
+        )
+        ThemeId.ComradeNotes -> ComradeCaptureScreen(
+            state = state, onToggle = onToggle,
+            onSavePreview = viewModel::confirmSave, onDiscardPreview = viewModel::discardPreview,
+        )
+        ThemeId.IlluminatedCodex -> CodexCaptureScreen(
+            state = state, onToggle = onToggle,
+            onSavePreview = viewModel::confirmSave, onDiscardPreview = viewModel::discardPreview,
+        )
+        ThemeId.MaterialDefault -> MaterialCaptureScreen(
+            state = state, onToggle = onToggle,
+            onSavePreview = viewModel::confirmSave, onDiscardPreview = viewModel::discardPreview,
+        )
     }
 }
 
 @Composable
-private fun MaterialCaptureScreen(state: CaptureUiState, onToggle: () -> Unit) {
+private fun MaterialCaptureScreen(
+    state: CaptureUiState,
+    onToggle: () -> Unit,
+    onSavePreview: () -> Unit,
+    onDiscardPreview: () -> Unit,
+) {
     val strings = LocalOpenBrainStrings.current
+    val text = phaseLifecycleText(state.phase, state.nearLimit, strings)
     Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(bottom = 24.dp),
     ) {
-        PageHeader(
-            title = "Capture",
-            subtitle = when {
-                state.isProcessing -> strings.processing.sub
-                state.isCapturing -> "Capturing audio"
-                else -> strings.pageSubtitle
-            },
-        )
+        PageHeader(title = "Capture", subtitle = text.sub)
         StatusCard(
-            mainLabel = when {
-                state.isProcessing -> strings.processing.main
-                state.isCapturing -> strings.listening.main
-                else -> strings.idle.main
-            },
-            subLabel = when {
-                state.isProcessing -> strings.processing.sub
-                state.isCapturing -> strings.listening.sub
-                else -> strings.idle.sub
-            },
-            isCapturing = state.isCapturing,
-            isProcessing = state.isProcessing,
+            mainLabel = text.main,
+            subLabel = text.sub,
+            phase = state.phase,
         )
+        if (state.nearLimit && state.phase is CapturePhase.Recording) {
+            NearLimitBanner(strings.nearLimit)
+        }
         CaptureFab(
-            label = when {
-                state.isProcessing -> strings.button.processing
-                state.isCapturing -> strings.button.stop
-                else -> strings.button.start
-            },
-            isCapturing = state.isCapturing,
-            isProcessing = state.isProcessing,
+            label = phaseButtonLabel(state.phase, strings),
+            phase = state.phase,
             onToggle = onToggle,
         )
-        StatsGrid(state = state)
-        LatestThoughtCard(
+        DurationCard(durationMs = state.durationMs, isRecording = state.phase is CapturePhase.Recording)
+        if (state.phase is CapturePhase.Preview) {
+            PreviewCard(
+                transcript = state.previewTranscript ?: "",
+                strings = strings,
+                onSave = onSavePreview,
+                onDiscard = onDiscardPreview,
+            )
+        }
+        LastSessionCard(
             title = strings.latestTitle,
-            text = state.latestThought,
-            secondsAgo = state.latestThoughtSecondsAgo,
-            isCapturing = state.isCapturing,
+            text = state.lastSavedTranscript,
+            secondsAgo = state.lastSavedSecondsAgo,
+            durationMs = state.lastSavedDurationMs,
         )
     }
 }
@@ -157,8 +173,7 @@ private fun PageHeader(title: String, subtitle: String) {
 private fun StatusCard(
     mainLabel: String,
     subLabel: String,
-    isCapturing: Boolean,
-    isProcessing: Boolean,
+    phase: CapturePhase,
 ) {
     Surface(
         modifier = Modifier
@@ -169,7 +184,7 @@ private fun StatusCard(
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(isCapturing = isCapturing, isProcessing = isProcessing)
+                StatusDot(phase = phase)
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text(
@@ -184,7 +199,7 @@ private fun StatusCard(
                     )
                 }
             }
-            if (isCapturing || isProcessing) {
+            if (phase is CapturePhase.Recording || phase == CapturePhase.Transcribing || phase == CapturePhase.Saving) {
                 Spacer(Modifier.height(14.dp))
                 LinearProgressIndicator(
                     modifier = Modifier
@@ -199,8 +214,8 @@ private fun StatusCard(
 }
 
 @Composable
-private fun StatusDot(isCapturing: Boolean, isProcessing: Boolean) {
-    if (!isCapturing && !isProcessing) {
+private fun StatusDot(phase: CapturePhase) {
+    if (phase is CapturePhase.Idle || phase is CapturePhase.Error || phase is CapturePhase.Saved) {
         Box(
             Modifier
                 .size(24.dp)
@@ -227,8 +242,11 @@ private fun StatusDot(isCapturing: Boolean, isProcessing: Boolean) {
         ),
         label = "alpha",
     )
-    val color = if (isProcessing) MaterialTheme.colorScheme.primary
-    else LocalOpenBrainTokens.current.extras.success
+    val color = when (phase) {
+        is CapturePhase.Recording -> LocalOpenBrainTokens.current.extras.success
+        is CapturePhase.Preview -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.primary
+    }
     Box(
         Modifier
             .size(24.dp)
@@ -239,7 +257,44 @@ private fun StatusDot(isCapturing: Boolean, isProcessing: Boolean) {
 }
 
 @Composable
-private fun CaptureFab(label: String, isCapturing: Boolean, isProcessing: Boolean, onToggle: () -> Unit) {
+private fun NearLimitBanner(text: LifecycleText) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.errorContainer,
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.WarningAmber,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(
+                    text = text.main,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+                Text(
+                    text = text.sub,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CaptureFab(label: String, phase: CapturePhase, onToggle: () -> Unit) {
+    val isRecording = phase is CapturePhase.Recording
+    val isBusy = phase.isBusy || phase is CapturePhase.Preview
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -247,22 +302,22 @@ private fun CaptureFab(label: String, isCapturing: Boolean, isProcessing: Boolea
         horizontalArrangement = Arrangement.Center,
     ) {
         val containerColor = when {
-            isProcessing -> MaterialTheme.colorScheme.secondaryContainer
-            isCapturing -> MaterialTheme.colorScheme.error
+            isBusy -> MaterialTheme.colorScheme.secondaryContainer
+            isRecording -> MaterialTheme.colorScheme.error
             else -> MaterialTheme.colorScheme.primary
         }
         val contentColor = when {
-            isProcessing -> MaterialTheme.colorScheme.onSecondaryContainer
-            isCapturing -> MaterialTheme.colorScheme.onError
+            isBusy -> MaterialTheme.colorScheme.onSecondaryContainer
+            isRecording -> MaterialTheme.colorScheme.onError
             else -> MaterialTheme.colorScheme.onPrimary
         }
         ExtendedFloatingActionButton(
-            onClick = { if (!isProcessing) onToggle() },
+            onClick = { if (!isBusy) onToggle() },
             containerColor = containerColor,
             contentColor = contentColor,
             shape = RoundedCornerShape(16.dp),
             icon = {
-                if (isProcessing) {
+                if (isBusy) {
                     androidx.compose.material3.CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
                         strokeWidth = 2.dp,
@@ -270,7 +325,7 @@ private fun CaptureFab(label: String, isCapturing: Boolean, isProcessing: Boolea
                     )
                 } else {
                     Icon(
-                        imageVector = if (isCapturing) Icons.Filled.Stop else Icons.Filled.Mic,
+                        imageVector = if (isRecording) Icons.Filled.Stop else Icons.Filled.Mic,
                         contentDescription = null,
                     )
                 }
@@ -281,56 +336,17 @@ private fun CaptureFab(label: String, isCapturing: Boolean, isProcessing: Boolea
 }
 
 @Composable
-private fun StatsGrid(state: CaptureUiState) {
-    Column(
-        Modifier
+private fun DurationCard(durationMs: Long, isRecording: Boolean) {
+    Surface(
+        modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatCard(
-                label = "Duration",
-                value = formatDuration(state.durationMs),
-                highlight = state.isCapturing,
-                modifier = Modifier.weight(1f),
-            )
-            StatCard(
-                label = "Captured",
-                value = state.capturedCount.toString(),
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatCard(
-                label = "Sent",
-                value = state.sentCount.toString(),
-                modifier = Modifier.weight(1f),
-            )
-            StatCard(
-                label = "Queued",
-                value = state.queuedCount.toString(),
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun StatCard(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    highlight: Boolean = false,
-) {
-    Surface(
-        modifier = modifier,
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Text(
-                text = label.uppercase(Locale.US),
+                text = "DURATION",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontSize = 11.sp,
                     letterSpacing = 0.8.sp,
@@ -340,18 +356,67 @@ private fun StatCard(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = value,
+                text = formatDuration(durationMs),
                 fontFamily = FontFamily.Monospace,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.W300,
-                color = if (highlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                color = if (isRecording) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             )
         }
     }
 }
 
 @Composable
-private fun LatestThoughtCard(title: String, text: String?, secondsAgo: Long, isCapturing: Boolean) {
+private fun PreviewCard(
+    transcript: String,
+    strings: ThemeStrings,
+    onSave: () -> Unit,
+    onDiscard: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                text = "PREVIEW",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 11.sp,
+                    letterSpacing = 0.8.sp,
+                ),
+                fontWeight = FontWeight.W500,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = transcript,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onSave,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                    modifier = Modifier.weight(1f),
+                ) { Text(strings.savePreview) }
+                OutlinedButton(
+                    onClick = onDiscard,
+                    modifier = Modifier.weight(1f),
+                ) { Text(strings.discardPreview) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LastSessionCard(title: String, text: String?, secondsAgo: Long, durationMs: Long) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -393,7 +458,7 @@ private fun LatestThoughtCard(title: String, text: String?, secondsAgo: Long, is
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = formatAge(secondsAgo, isCapturing),
+                    text = "${formatAge(secondsAgo)} · ${formatDuration(durationMs)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -402,7 +467,28 @@ private fun LatestThoughtCard(title: String, text: String?, secondsAgo: Long, is
     }
 }
 
-private fun formatDuration(ms: Long): String {
+internal fun phaseLifecycleText(
+    phase: CapturePhase,
+    nearLimit: Boolean,
+    strings: ThemeStrings,
+): LifecycleText = when (phase) {
+    is CapturePhase.Idle -> strings.idle
+    is CapturePhase.Recording -> if (nearLimit) strings.nearLimit else strings.listening
+    CapturePhase.Transcribing -> strings.transcribing
+    is CapturePhase.Preview -> strings.preview
+    CapturePhase.Saving -> strings.saving
+    is CapturePhase.Saved -> strings.saved
+    is CapturePhase.Error -> LifecycleText(strings.error.main, phase.message)
+}
+
+internal fun phaseButtonLabel(phase: CapturePhase, strings: ThemeStrings): String = when (phase) {
+    is CapturePhase.Recording -> strings.button.stop
+    CapturePhase.Transcribing, CapturePhase.Saving -> strings.button.processing
+    is CapturePhase.Preview -> strings.savePreview
+    else -> strings.button.start
+}
+
+internal fun formatDuration(ms: Long): String {
     val totalSec = ms / 1000
     val h = totalSec / 3600
     val m = (totalSec % 3600) / 60
@@ -410,8 +496,7 @@ private fun formatDuration(ms: Long): String {
     return String.format(Locale.US, "%02d:%02d:%02d", h, m, s)
 }
 
-@Suppress("UNUSED_PARAMETER")
-private fun formatAge(seconds: Long, isCapturing: Boolean): String = when {
+internal fun formatAge(seconds: Long): String = when {
     seconds < 2 -> "just now"
     seconds < 60 -> "${seconds}s ago"
     seconds < 3600 -> "${seconds / 60}m ago"

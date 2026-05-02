@@ -1,8 +1,6 @@
 package com.hubble.openbrain.ui.capture
 
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -10,7 +8,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +29,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -47,6 +43,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hubble.openbrain.R
+import com.hubble.openbrain.service.CapturePhase
+import com.hubble.openbrain.service.isBusy
+import com.hubble.openbrain.service.isRecording
 import com.hubble.openbrain.ui.theme.Anton
 import com.hubble.openbrain.ui.theme.LocalOpenBrainStrings
 import com.hubble.openbrain.ui.theme.SpaceMono
@@ -60,32 +59,23 @@ import java.util.Locale
 /**
  * Comrade Notes — Soviet propaganda / Shepard Fairey.
  * Layout mirrors v7-comrade.html (iteration of v3-obey):
- *   red status bar ★ OB ★ · THE DISPATCH masthead (hazard-stripe borders) ·
- *   hero brain image · red clipped-polygon ribbon · starburst + round 100dp
- *   red toggle · sub-label slot · 2×2 bureau stats grid · flat LAST DISPATCH.
+ *   red status bar ★ OB ★ · THE DISPATCH masthead · hero brain image · red ribbon ·
+ *   starburst + round red toggle · sub-label · single duration banner · LAST DISPATCH.
  */
 @Composable
 fun ComradeCaptureScreen(
     state: CaptureUiState,
     onToggle: () -> Unit,
+    onSavePreview: () -> Unit,
+    onDiscardPreview: () -> Unit,
 ) {
     val strings = LocalOpenBrainStrings.current
+    val isRecording = state.phase.isRecording
+    val isBusy = state.phase.isBusy
+    val isPreview = state.phase is CapturePhase.Preview
 
-    val main = when {
-        state.isProcessing -> strings.processing.main
-        state.isCapturing -> strings.listening.main
-        else -> strings.idle.main
-    }
-    val sub = when {
-        state.isProcessing -> strings.processing.sub
-        state.isCapturing -> strings.listening.sub
-        else -> strings.idle.sub
-    }
-    val buttonLabel = when {
-        state.isProcessing -> strings.button.processing
-        state.isCapturing -> strings.button.stop
-        else -> strings.button.start
-    }
+    val text = phaseLifecycleText(state.phase, state.nearLimit, strings)
+    val buttonLabel = phaseButtonLabel(state.phase, strings)
 
     Box(
         Modifier
@@ -101,16 +91,28 @@ fun ComradeCaptureScreen(
             StatusBanner(subtitle = strings.pageSubtitle)
             DispatchMasthead()
             HeroImage()
-            Ribbon(main.uppercase(Locale.US))
-            ToggleArea(buttonLabel, state.isCapturing, state.isProcessing, onToggle)
-            SubLabelSlot(sub.uppercase(Locale.US))
-            StatsBanner(
-                duration = formatDurationComrade(state.durationMs),
-                captured = state.capturedCount,
-                transmitted = state.sentCount,
-                queued = state.queuedCount,
+            Ribbon(text.main.uppercase(Locale.US))
+            ToggleArea(
+                label = buttonLabel,
+                isCapturing = isRecording,
+                isProcessing = isBusy || isPreview,
+                onToggle = { if (!isPreview) onToggle() },
             )
-            InterceptBlock(strings.latestTitle, state.latestThought)
+            SubLabelSlot(text.sub.uppercase(Locale.US))
+            if (state.nearLimit && isRecording) {
+                NearLimitBanner(strings.nearLimit.main, strings.nearLimit.sub)
+            }
+            DurationBanner(formatDurationComrade(state.durationMs))
+            if (isPreview) {
+                PreviewBlock(
+                    transcript = state.previewTranscript ?: "",
+                    saveLabel = strings.savePreview,
+                    discardLabel = strings.discardPreview,
+                    onSave = onSavePreview,
+                    onDiscard = onDiscardPreview,
+                )
+            }
+            InterceptBlock(strings.latestTitle, state.lastSavedTranscript)
         }
 
         HalftoneOverlay()
@@ -251,7 +253,6 @@ private fun HeroImage() {
 
 @Composable
 private fun Ribbon(text: String) {
-    val ribbonShape = androidx.compose.ui.graphics.RectangleShape
     Box(
         Modifier
             .fillMaxWidth()
@@ -296,7 +297,6 @@ private fun ToggleArea(
             animationSpec = infiniteRepeatable(tween(20_000, easing = LinearEasing)),
             label = "starburst-spin",
         )
-        // starburst behind button
         Box(
             Modifier
                 .size(144.dp)
@@ -325,7 +325,6 @@ private fun ToggleArea(
                     }
                 },
         )
-        // round button
         Surface(
             modifier = Modifier.size(100.dp),
             shape = CircleShape,
@@ -373,53 +372,121 @@ private fun SubLabelSlot(text: String) {
 }
 
 @Composable
-private fun StatsBanner(duration: String, captured: Int, transmitted: Int, queued: Int) {
+private fun NearLimitBanner(main: String, sub: String) {
     Column(
         Modifier
             .fillMaxWidth()
-            .background(cm_red)
+            .background(cm_gold)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        StatRow(duration, "ELAPSED", captured.toString(), "CAPTURED")
-        Spacer(Modifier.height(6.dp))
-        StatRow(transmitted.toString(), "TRANSMITTED", queued.toString(), "QUEUED")
-    }
-}
-
-@Composable
-private fun StatRow(vLeft: String, lLeft: String, vRight: String, lRight: String) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        StatCell(vLeft, lLeft, modifier = Modifier.weight(1f))
-        Box(
-            Modifier
-                .width(1.dp)
-                .height(22.dp)
-                .background(cm_cream.copy(alpha = 0.35f)),
-        )
-        Spacer(Modifier.width(16.dp))
-        StatCell(vRight, lRight, modifier = Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun StatCell(value: String, label: String, modifier: Modifier = Modifier) {
-    Row(modifier, verticalAlignment = Alignment.Bottom) {
         Text(
-            text = value,
+            text = main.uppercase(Locale.US),
             fontFamily = Anton,
-            fontSize = 20.sp,
-            letterSpacing = 0.8.sp,
-            color = cm_cream,
-            modifier = Modifier.padding(end = 8.dp),
+            fontSize = 14.sp,
+            letterSpacing = 2.0.sp,
+            color = cm_black,
         )
         Text(
-            text = label,
+            text = sub.uppercase(Locale.US),
             fontFamily = SpaceMono,
             fontWeight = FontWeight.Bold,
-            fontSize = 9.5.sp,
+            fontSize = 9.sp,
             letterSpacing = 1.4.sp,
+            color = cm_black,
+        )
+    }
+}
+
+@Composable
+private fun DurationBanner(duration: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(cm_red)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Text(
+            text = duration,
+            fontFamily = Anton,
+            fontSize = 26.sp,
+            letterSpacing = 1.0.sp,
+            color = cm_cream,
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "ELAPSED",
+            fontFamily = SpaceMono,
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp,
+            letterSpacing = 2.0.sp,
             color = cm_cream.copy(alpha = 0.82f),
-            modifier = Modifier.padding(bottom = 3.dp),
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun PreviewBlock(
+    transcript: String,
+    saveLabel: String,
+    discardLabel: String,
+    onSave: () -> Unit,
+    onDiscard: () -> Unit,
+) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+        Text(
+            text = "PREVIEW · AWAITING ORDERS",
+            fontFamily = Anton,
+            fontSize = 13.sp,
+            letterSpacing = 2.6.sp,
+            color = cm_red,
+        )
+        Spacer(Modifier.height(8.dp))
+        Row {
+            Text(
+                text = "//",
+                fontFamily = SpaceMono,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = cm_red,
+                modifier = Modifier.padding(end = 6.dp),
+            )
+            Text(
+                text = transcript,
+                fontFamily = SpaceMono,
+                fontSize = 12.sp,
+                lineHeight = 20.sp,
+                color = cm_creamDark,
+            )
+        }
+        Spacer(Modifier.height(14.dp))
+        Row {
+            ComradeButton(label = saveLabel, primary = true, onClick = onSave)
+            Spacer(Modifier.width(10.dp))
+            ComradeButton(label = discardLabel, primary = false, onClick = onDiscard)
+        }
+    }
+}
+
+@Composable
+private fun ComradeButton(label: String, primary: Boolean, onClick: () -> Unit) {
+    val bg = if (primary) cm_red else cm_cream
+    val fg = if (primary) cm_cream else cm_red
+    val border = if (primary) cm_red else cm_red
+    Surface(
+        onClick = onClick,
+        color = bg,
+        shape = RoundedCornerShape(0.dp),
+        border = BorderStroke(2.dp, border),
+    ) {
+        Text(
+            text = label.uppercase(Locale.US),
+            fontFamily = Anton,
+            fontSize = 14.sp,
+            letterSpacing = 2.0.sp,
+            color = fg,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
     }
 }
